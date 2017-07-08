@@ -1,6 +1,5 @@
 import asyncio
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-import time
 import random
 from driver import *
 VALID_IDS = [1, 2, 3, 4]
@@ -9,16 +8,16 @@ PRODUCER_SLEEP = 20
 MAX_FETCHED_COUNT = 5
 
 
-async def monitor(queues):
+async def monitor(queues, loop):
     while True:
         print("> [MONITOR] Turn ...")
         for id in VALID_IDS:
             print("> [MONITOR] Q%s[%s]" % (id, queues[id].qsize()))
         print("> [MONITOR] Sleep.")
-        await asyncio.sleep(MONITOR_SLEEP)
+        await asyncio.sleep(MONITOR_SLEEP, loop=loop)
 
 
-async def producer(queues):
+async def producer(queues, loop):
     while True:
         print("> [PRODUCER] Turn ...")
         queued_count = 0
@@ -28,16 +27,16 @@ async def producer(queues):
             set_match_as_queued(match_id)  # mark as queued in DB
             queued_count = queued_count + 1
         print("> [PRODUCER] Added new %s. Sleep." % queued_count)
-        await asyncio.sleep(PRODUCER_SLEEP)
+        await asyncio.sleep(PRODUCER_SLEEP, loop=loop)
 
 
-async def consumer(q):
+async def consumer(q, loop):
     while True:
         print("\n> [CONSUMER] Turn ...")
         match_id = await q.get()
         print("> [CONSUMER] Process <%s> ..." % match_id)
         proc_count = set_match_processed(match_id)  # fake processing, just decrement a counter
-        time.sleep(random.randint(1, 5))  # add delay
+        await asyncio.sleep(random.randint(1, 5), loop=loop)  # add delay
         if proc_count > 0:
             q.put_nowait(match_id)
             print("> [CONSUMER] Re-QUEUE <%s>" % match_id)
@@ -54,6 +53,8 @@ if __name__ == "__main__":
     scheduler = AsyncIOScheduler()
     reset_data()
 
+    loop = asyncio.get_event_loop()
+
     # init queues
     QUEUES = {
         1: asyncio.Queue(),  # (match_id % 4 + 1) = 1
@@ -62,11 +63,10 @@ if __name__ == "__main__":
         4: asyncio.Queue(),  # (match_id % 4 + 1) = 4
     }
 
-    loop = asyncio.get_event_loop()
-    loop.create_task(producer(QUEUES))
-    loop.create_task(monitor(QUEUES))
+    loop.create_task(producer(QUEUES, loop))
+    loop.create_task(monitor(QUEUES, loop))
     for id in VALID_IDS:
-        loop.create_task(consumer(QUEUES[id]))  # pass to each consumer, the relative queues
+        loop.create_task(consumer(QUEUES[id], loop))  # pass to each consumer, the relative queues
 
     try:
         loop.run_forever()
